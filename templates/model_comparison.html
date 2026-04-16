@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Model Comparison — AI Governance Framework</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"/>
+<link rel="stylesheet" href="/static/css/style.css"/>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+{% with active_page='model_comparison' %}{% include '_navbar.html' %}{% endwith %}
+
+<div class="container-fluid px-4 pt-4">
+
+  <!-- Header -->
+  <div class="mb-4">
+    <h4 class="mb-1" id="page-title">Model Comparison</h4>
+    <div style="color:var(--text-muted);font-size:.88rem" id="page-subtitle">Loading…</div>
+  </div>
+
+  <!-- Explanation box -->
+  <div class="insight-box mb-4" id="explanation-box" style="display:none">
+    <strong>Auto-generated insight:</strong> <span id="explanation-text"></span>
+  </div>
+
+  <!-- Comparison table -->
+  <div class="chart-container mb-4">
+    <div class="section-title">All Models</div>
+    <div class="table-responsive">
+      <table class="table-dark-custom" id="comparison-table">
+        <thead>
+          <tr>
+            <th onclick="sortTable(0)">Model ↕</th>
+            <th onclick="sortTable(1)">Type ↕</th>
+            <th onclick="sortTable(2)">Accuracy ↕</th>
+            <th onclick="sortTable(3)">Precision ↕</th>
+            <th onclick="sortTable(4)">Recall ↕</th>
+            <th onclick="sortTable(5)">F1 ↕</th>
+            <th onclick="sortTable(6)">ROC-AUC ↕</th>
+            <th onclick="sortTable(7)">Train Time (ms) ↕</th>
+          </tr>
+        </thead>
+        <tbody id="comparison-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Charts row -->
+  <div class="row g-3 mb-4">
+    <div class="col-lg-6">
+      <div class="chart-container">
+        <div class="section-title">F1-Score Comparison</div>
+        <div id="f1-chart" class="plotly-chart"></div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="chart-container">
+        <div class="section-title">ROC-AUC Comparison</div>
+        <div id="roc-chart" class="plotly-chart"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Insight box -->
+  <div class="row g-3 mb-4">
+    <div class="col-12">
+      <div class="insight-box" id="bottom-insight" style="display:none">
+        <div id="insight-content"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/js/dashboard.js"></script>
+<script>
+const ENSEMBLE_KW = ['Voting','Stacking','Bagging','AdaBoost'];
+const isEnsemble  = n => ENSEMBLE_KW.some(k => n.includes(k));
+
+let _tableData = [];
+let _sortDir   = {};
+
+async function loadComparison() {
+  const res  = await fetch('/api/model-comparison');
+  if (!res.ok) { document.getElementById('page-subtitle').textContent = 'Pipeline not run yet.'; return; }
+  const data = await res.json();
+
+  document.getElementById('page-title').textContent = `Model Comparison — ${data.dataset_name}`;
+  const scoreKey = data.problem_type === 'regression' ? 'R²' : 'F1';
+  const best = data.model_results[0] || {};
+  const scoreVal = best.f1 ?? best.r2 ?? best.accuracy ?? '—';
+  document.getElementById('page-subtitle').textContent =
+    `Problem Type: ${data.problem_type} | Best Model: ${data.best_model} | ${scoreKey}: ${scoreVal}`;
+
+  if (data.explanation) {
+    document.getElementById('explanation-box').style.display = 'block';
+    document.getElementById('explanation-text').textContent = data.explanation;
+  }
+
+  _tableData = data.model_results;
+  renderTable(_tableData, data.best_model, data.problem_type);
+  renderBarCharts(_tableData, data.best_model);
+  renderInsight(_tableData, data.best_model, data.problem_type);
+}
+
+function renderTable(rows, bestModel, problemType) {
+  const isReg = problemType === 'regression';
+  const tbody = document.getElementById('comparison-tbody');
+
+  // Group separator
+  let lastType = null;
+  tbody.innerHTML = rows.map(r => {
+    const type = isEnsemble(r.model) ? 'Ensemble' : 'Individual';
+    let sep = '';
+    if (type !== lastType) {
+      sep = `<tr style="background:#12152a"><td colspan="8" style="padding:6px 14px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted)">${type} Models</td></tr>`;
+      lastType = type;
+    }
+    const isBest = r.model === bestModel;
+    const f1Val  = isReg ? (r.r2 ?? '—') : (r.f1 ?? '—');
+    const rocVal = r.roc_auc ?? '—';
+    return sep + `
+      <tr class="${isBest ? 'row-best' : ''}">
+        <td><strong>${r.model}</strong>${isBest ? ' <span class="badge bg-success ms-1">⭐ Best</span>' : ''}</td>
+        <td><span style="font-size:.75rem;color:var(--text-muted)">${isEnsemble(r.model)?'Ensemble':'Individual'}</span></td>
+        <td>${fmt(r.accuracy)}</td>
+        <td>${fmt(r.precision)}</td>
+        <td>${fmt(r.recall)}</td>
+        <td><strong>${fmt(f1Val)}</strong></td>
+        <td>${fmt(rocVal)}</td>
+        <td>${r.train_time_s !== undefined ? Math.round(r.train_time_s * 1000) : '—'}</td>
+      </tr>`;
+  }).join('');
+}
+
+function fmt(v) {
+  if (v === undefined || v === null || v === 'N/A') return '<span style="color:var(--text-muted)">—</span>';
+  const n = parseFloat(v);
+  return isNaN(n) ? v : n.toFixed(4);
+}
+
+function sortTable(col) {
+  _sortDir[col] = !_sortDir[col];
+  const keys = ['model','_type','accuracy','precision','recall','f1','roc_auc','train_time_s'];
+  const key  = keys[col];
+  _tableData.sort((a,b) => {
+    const av = key === '_type' ? (isEnsemble(a.model)?1:0) : (parseFloat(a[key])||0);
+    const bv = key === '_type' ? (isEnsemble(b.model)?1:0) : (parseFloat(b[key])||0);
+    return _sortDir[col] ? av - bv : bv - av;
+  });
+  renderTable(_tableData, '', '');
+}
+
+function renderBarCharts(rows, bestModel) {
+  const layout = {
+    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    font:{ color:'#e8eaf0', size:11 },
+    margin:{ t:20, r:10, b:80, l:10 },
+    xaxis:{ gridcolor:'#2d3148', color:'#8b92a9', tickangle:-35 },
+    yaxis:{ gridcolor:'#2d3148', color:'#8b92a9', range:[0,1] },
+  };
+
+  const names  = rows.map(r => r.model.length > 16 ? r.model.slice(0,14)+'…' : r.model);
+  const f1vals = rows.map(r => parseFloat(r.f1 ?? r.r2 ?? 0) || 0);
+  const rocvals= rows.map(r => parseFloat(r.roc_auc ?? 0) || 0);
+  const f1colors = rows.map(r => r.model === bestModel ? '#2ecc71' : '#4f8ef7');
+  const roccolors= rows.map(r => r.model === bestModel ? '#2ecc71' : '#9b59b6');
+
+  Plotly.react('f1-chart',
+    [{ type:'bar', x:names, y:f1vals, marker:{color:f1colors}, text:f1vals.map(v=>v.toFixed(3)), textposition:'outside', textfont:{size:9,color:'#8b92a9'} }],
+    {...layout, yaxis:{...layout.yaxis, title:'F1 Score'}}, {responsive:true, displayModeBar:false});
+
+  Plotly.react('roc-chart',
+    [{ type:'bar', x:names, y:rocvals, marker:{color:roccolors}, text:rocvals.map(v=>v>0?v.toFixed(3):'—'), textposition:'outside', textfont:{size:9,color:'#8b92a9'} }],
+    {...layout, yaxis:{...layout.yaxis, title:'ROC-AUC'}}, {responsive:true, displayModeBar:false});
+}
+
+function renderInsight(rows, bestModel, problemType) {
+  const box = document.getElementById('bottom-insight');
+  const content = document.getElementById('insight-content');
+  if (!rows.length) return;
+
+  const ensembles   = rows.filter(r => isEnsemble(r.model));
+  const individuals = rows.filter(r => !isEnsemble(r.model));
+  const scoreKey    = problemType === 'regression' ? 'r2' : 'f1';
+  const bestInd     = individuals[0];
+  const bestEns     = ensembles[0];
+  const isBestEns   = bestModel && isEnsemble(bestModel);
+
+  const ensWhy = isBestEns && bestInd
+    ? `<li><strong>Why does the ensemble win?</strong> Ensemble methods combine predictions from multiple base learners, reducing variance and bias. ${bestModel} leverages complementary strengths of Random Forest, Gradient Boosting, and Logistic Regression.</li>`
+    : '';
+
+  const indHighlight = bestInd
+    ? `<li><strong>Strongest individual model:</strong> <span style="color:var(--accent-blue)">${bestInd.model}</span> — ${scoreKey.toUpperCase()}: ${parseFloat(bestInd[scoreKey]||0).toFixed(4)}</li>`
+    : '';
+
+  const rec = bestEns && isBestEns
+    ? `<li><strong>Recommendation:</strong> Deploy <span style="color:var(--accent-green)">${bestModel}</span> in production. Ensemble models are more robust to unseen data and concept drift, though they require more compute at inference time.</li>`
+    : `<li><strong>Recommendation:</strong> Deploy <span style="color:var(--accent-green)">${bestModel}</span>. It offers the best balance of accuracy and training speed for this dataset.</li>`;
+
+  content.innerHTML = `<ul style="margin:0;padding-left:18px;line-height:2">${ensWhy}${indHighlight}${rec}</ul>`;
+  box.style.display = 'block';
+}
+
+loadComparison();
+</script>
+</body>
+</html>

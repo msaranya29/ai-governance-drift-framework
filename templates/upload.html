@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>AI Governance Framework</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh}
+a{color:#60a5fa;text-decoration:none}
+
+/* ── layout ── */
+.page{max-width:960px;margin:0 auto;padding:40px 20px 80px}
+
+/* ── hero ── */
+.hero{text-align:center;padding:56px 0 44px}
+.hero h1{font-size:2.4rem;font-weight:700;background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1.2;margin-bottom:14px}
+.hero p{color:#94a3b8;font-size:1.05rem;max-width:560px;margin:0 auto}
+
+/* ── cards / panels ── */
+.card{background:#1e2130;border:1px solid #2d3148;border-radius:12px;padding:28px}
+.card+.card{margin-top:24px}
+.section-label{font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:16px}
+
+/* ── drop zone ── */
+.drop-zone{border:2px dashed #3b4268;border-radius:10px;padding:48px 24px;text-align:center;cursor:pointer;transition:all .2s;position:relative}
+.drop-zone:hover,.drop-zone.over{border-color:#60a5fa;background:#1a2035}
+.drop-zone svg{width:44px;height:44px;stroke:#475569;margin-bottom:12px}
+.drop-zone p{color:#94a3b8;font-size:.95rem;margin-bottom:14px}
+.drop-zone .hint{font-size:.78rem;color:#475569;margin-top:8px}
+#fileInput{display:none}
+#selectedFile{margin-top:14px;font-size:.88rem;color:#60a5fa;display:none}
+
+/* ── buttons ── */
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border-radius:8px;border:none;font-size:.92rem;font-weight:600;cursor:pointer;transition:all .15s}
+.btn-primary{background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff}
+.btn-primary:hover{opacity:.9;transform:translateY(-1px)}
+.btn-primary:disabled{background:#374151;color:#6b7280;cursor:not-allowed;transform:none}
+.btn-outline{background:transparent;border:1px solid #3b4268;color:#94a3b8}
+.btn-outline:hover{border-color:#60a5fa;color:#60a5fa}
+.btn-success{background:linear-gradient(135deg,#10b981,#059669);color:#fff}
+.btn-success:hover{opacity:.9}
+
+/* ── divider ── */
+.or-divider{display:flex;align-items:center;gap:14px;margin:28px 0;color:#475569;font-size:.82rem}
+.or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:#2d3148}
+
+/* ── sample cards ── */
+.sample-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.sample-card{background:#161824;border:1px solid #2d3148;border-radius:10px;padding:20px;transition:border-color .2s;cursor:pointer}
+.sample-card:hover{border-color:#6366f1}
+.sample-card .icon{font-size:1.8rem;margin-bottom:10px}
+.sample-card h3{font-size:1rem;font-weight:600;margin-bottom:6px}
+.sample-card p{font-size:.82rem;color:#64748b;margin-bottom:14px;line-height:1.5}
+.sample-meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.tag{font-size:.72rem;padding:3px 9px;border-radius:20px;font-weight:600}
+.tag-blue{background:#1e3a5f;color:#60a5fa}
+.tag-purple{background:#2e1f5e;color:#a78bfa}
+.tag-green{background:#064e3b;color:#34d399}
+
+/* ── progress pipeline ── */
+#pipeline-progress{display:none}
+.steps{display:flex;align-items:center;gap:0;margin:20px 0 28px;overflow-x:auto;padding-bottom:4px}
+.step{display:flex;flex-direction:column;align-items:center;flex:1;min-width:90px;position:relative}
+.step:not(:last-child)::after{content:'';position:absolute;top:16px;left:calc(50% + 16px);right:calc(-50% + 16px);height:2px;background:#2d3148;z-index:0}
+.step.done:not(:last-child)::after{background:#10b981}
+.step-dot{width:32px;height:32px;border-radius:50%;border:2px solid #2d3148;background:#161824;display:flex;align-items:center;justify-content:center;font-size:.8rem;z-index:1;transition:all .3s}
+.step.active .step-dot{border-color:#3b82f6;background:#1e3a5f;color:#60a5fa}
+.step.done .step-dot{border-color:#10b981;background:#064e3b;color:#34d399}
+.step-label{font-size:.7rem;color:#64748b;margin-top:6px;text-align:center;line-height:1.3}
+.step.active .step-label{color:#60a5fa}
+.step.done .step-label{color:#34d399}
+.progress-bar-wrap{background:#1e2130;border-radius:99px;height:6px;overflow:hidden;margin-bottom:8px}
+.progress-bar{height:100%;background:linear-gradient(90deg,#3b82f6,#6366f1);border-radius:99px;transition:width .4s ease;width:0%}
+#progress-msg{font-size:.85rem;color:#94a3b8;text-align:center}
+
+/* ── preview panel ── */
+#preview-panel{display:none}
+.info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px}
+.info-tile{background:#161824;border:1px solid #2d3148;border-radius:8px;padding:14px}
+.info-tile .val{font-size:1.3rem;font-weight:700;color:#e2e8f0}
+.info-tile .lbl{font-size:.72rem;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.05em}
+
+.target-row{display:flex;align-items:center;gap:12px;margin-bottom:24px;flex-wrap:wrap}
+.target-row label{font-size:.88rem;color:#94a3b8;white-space:nowrap}
+select{background:#161824;border:1px solid #3b4268;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:.88rem}
+select:focus{outline:none;border-color:#60a5fa}
+
+/* ── feature table ── */
+.tbl-wrap{overflow-x:auto;margin-bottom:24px}
+table{width:100%;border-collapse:collapse;font-size:.83rem}
+th{background:#161824;color:#64748b;font-weight:600;padding:10px 14px;text-align:left;border-bottom:1px solid #2d3148;white-space:nowrap}
+td{padding:9px 14px;border-bottom:1px solid #1a1f2e;color:#cbd5e1}
+tr:hover td{background:#1a1f2e}
+.type-badge{font-size:.7rem;padding:2px 8px;border-radius:12px;font-weight:600}
+.type-numeric{background:#1e3a5f;color:#60a5fa}
+.type-categorical{background:#2e1f5e;color:#a78bfa}
+.type-datetime{background:#064e3b;color:#34d399}
+.missing-bar{display:inline-block;height:6px;border-radius:3px;background:#ef4444;vertical-align:middle;margin-right:6px}
+
+/* ── chart ── */
+.chart-wrap{max-width:480px;margin:0 auto 24px}
+
+/* ── alert / error ── */
+.alert{padding:12px 16px;border-radius:8px;font-size:.88rem;margin-top:12px}
+.alert-error{background:#2d1515;border:1px solid #7f1d1d;color:#fca5a5}
+.alert-success{background:#052e16;border:1px solid #14532d;color:#86efac}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── Hero ── -->
+  <div class="hero">
+    <h1>AI Governance Framework</h1>
+    <p>Upload any dataset to automatically detect concept drift, compare models, and monitor performance in real time.</p>
+  </div>
+
+  <!-- ── Upload card ── -->
+  <div class="card">
+    <div class="section-label">Upload your dataset</div>
+
+    <div class="drop-zone" id="dropZone">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 16V4m0 0L8 8m4-4 4 4"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2" stroke-dasharray="4 2"/>
+      </svg>
+      <p>Drag &amp; drop a CSV or Excel file here</p>
+      <button class="btn btn-outline" type="button" onclick="document.getElementById('fileInput').click()">Browse file</button>
+      <div class="hint">Supported: .csv, .xlsx &nbsp;·&nbsp; Max 50 MB</div>
+      <input type="file" id="fileInput" accept=".csv,.xlsx"/>
+    </div>
+
+    <div id="selectedFile"></div>
+    <div id="upload-error"></div>
+
+    <div style="margin-top:18px;text-align:right">
+      <button class="btn btn-primary" id="analyzeBtn" onclick="doUpload()" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19l-7-7 7-7"/><path d="M15 5l7 7-7 7"/></svg>
+        Analyze Dataset
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Sample datasets ── -->
+  <div class="or-divider">or choose a sample dataset</div>
+
+  <div class="sample-grid">
+    <div class="sample-card" onclick="loadSample('credit_fraud')">
+      <div class="icon">💳</div>
+      <h3>Credit Fraud Detection</h3>
+      <p>Imbalanced binary classification — detect fraudulent transactions from behavioural features.</p>
+      <div class="sample-meta">
+        <span class="tag tag-blue">2 000 rows</span>
+        <span class="tag tag-purple">Binary Classification</span>
+      </div>
+      <button class="btn btn-outline" style="width:100%">Use This Dataset</button>
+    </div>
+    <div class="sample-card" onclick="loadSample('employee_churn')">
+      <div class="icon">👥</div>
+      <h3>Employee Churn</h3>
+      <p>Predict which employees are likely to leave based on HR metrics and satisfaction scores.</p>
+      <div class="sample-meta">
+        <span class="tag tag-blue">1 500 rows</span>
+        <span class="tag tag-purple">Binary Classification</span>
+      </div>
+      <button class="btn btn-outline" style="width:100%">Use This Dataset</button>
+    </div>
+    <div class="sample-card" onclick="loadSample('house_prices')">
+      <div class="icon">🏠</div>
+      <h3>House Price Prediction</h3>
+      <p>Regression on property features — square footage, location, condition — to predict sale price.</p>
+      <div class="sample-meta">
+        <span class="tag tag-blue">1 500 rows</span>
+        <span class="tag tag-green">Regression</span>
+      </div>
+      <button class="btn btn-outline" style="width:100%">Use This Dataset</button>
+    </div>
+  </div>
+
+  <!-- ── Pipeline progress ── -->
+  <div class="card" id="pipeline-progress" style="margin-top:24px">
+    <div class="section-label">Running pipeline</div>
+    <div class="steps" id="stepsRow"></div>
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar"></div></div>
+    <div id="progress-msg">Starting…</div>
+  </div>
+
+  <!-- ── Preview panel ── -->
+  <div id="preview-panel">
+    <div class="card" style="margin-top:24px">
+      <div class="section-label">Dataset overview</div>
+
+      <div class="info-grid" id="infoGrid"></div>
+
+      <div class="target-row">
+        <label for="targetSelect">Target column:</label>
+        <select id="targetSelect" onchange="onTargetChange()"></select>
+        <span id="targetProblemType" style="font-size:.82rem;color:#a78bfa"></span>
+      </div>
+
+      <div class="section-label">Feature summary</div>
+      <div class="tbl-wrap"><table id="featureTable"><thead></thead><tbody></tbody></table></div>
+
+      <div id="chartSection" style="display:none">
+        <div class="section-label">Class distribution</div>
+        <div class="chart-wrap"><canvas id="classChart"></canvas></div>
+      </div>
+
+      <div style="text-align:right;margin-top:8px">
+        <button class="btn btn-success" id="runBtn" onclick="runPipeline()">
+          ✓ &nbsp;Looks good — Run Pipeline
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────────────────────────
+let activeDatasetId = null;
+let classChartInst  = null;
+let selectedFile    = null;
+
+const PIPELINE_STEPS = [
+  'Uploading', 'Analyzing', 'Preprocessing',
+  'Training Models', 'Detecting Drift', 'Generating Report'
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// File selection
+// ─────────────────────────────────────────────────────────────────────────────
+const dropZone  = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('over');
+  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+
+function setFile(file) {
+  selectedFile = file;
+  const mb = (file.size / 1024 / 1024).toFixed(2);
+  document.getElementById('selectedFile').style.display = 'block';
+  document.getElementById('selectedFile').innerHTML =
+    `<div style="margin-top:10px;padding:10px 14px;background:#161824;border-radius:6px;font-size:.85rem;color:#60a5fa">
+      📄 <strong>${file.name}</strong> &nbsp;·&nbsp; ${mb} MB
+    </div>`;
+  document.getElementById('analyzeBtn').disabled = false;
+  clearError();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Upload & analyze
+// ─────────────────────────────────────────────────────────────────────────────
+async function doUpload() {
+  if (!selectedFile) return;
+  showProgress(0);
+  const fd = new FormData();
+  fd.append('file', selectedFile);
+  advanceStep(0);
+  const res  = await fetch('/api/upload-dataset', { method: 'POST', body: fd });
+  const data = await res.json();
+  if (!res.ok) { hideProgress(); showError(data.error); return; }
+  advanceStep(1);
+  await sleep(300);
+  hideProgress();
+  showPreview(data);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sample datasets
+// ─────────────────────────────────────────────────────────────────────────────
+async function loadSample(name) {
+  showProgress(0);
+  advanceStep(0);
+  // Find the sample in the datasets list
+  const listRes  = await fetch('/api/datasets');
+  const datasets = await listRes.json();
+  const map = { credit_fraud: 'credit_fraud.csv', employee_churn: 'employee_churn.csv', house_prices: 'house_prices.csv' };
+  const match = datasets.find(d => d.filename === map[name]);
+  if (!match) { hideProgress(); showError('Sample dataset not found. Try refreshing.'); return; }
+
+  // Set as active
+  await fetch('/api/active-dataset', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ dataset_id: match.dataset_id }),
+  });
+  advanceStep(1);
+  await sleep(300);
+  hideProgress();
+  showPreview(match);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Preview panel
+// ─────────────────────────────────────────────────────────────────────────────
+function showPreview(data) {
+  activeDatasetId = data.dataset_id;
+  document.getElementById('preview-panel').style.display = 'block';
+  document.getElementById('preview-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Info tiles
+  const typeColor = { binary_classification:'#a78bfa', multiclass_classification:'#f59e0b', regression:'#34d399' };
+  document.getElementById('infoGrid').innerHTML = [
+    { val: Number(data.n_rows).toLocaleString(), lbl: 'Rows' },
+    { val: data.n_cols,                          lbl: 'Columns' },
+    { val: data.problem_type.replace(/_/g,' '),  lbl: 'Problem Type', color: typeColor[data.problem_type] },
+    { val: data.target_column,                   lbl: 'Target Column' },
+  ].map(t => `
+    <div class="info-tile">
+      <div class="val" style="${t.color ? 'color:'+t.color : ''}">${t.val}</div>
+      <div class="lbl">${t.lbl}</div>
+    </div>`).join('');
+
+  // Target selector
+  const sel = document.getElementById('targetSelect');
+  sel.innerHTML = '';
+  Object.keys(data.feature_types || {}).forEach(col => {
+    const o = document.createElement('option');
+    o.value = col; o.textContent = col;
+    if (col === data.target_column) o.selected = true;
+    sel.appendChild(o);
+  });
+  document.getElementById('targetProblemType').textContent = '← ' + data.problem_type.replace(/_/g,' ');
+
+  // Feature table
+  buildFeatureTable(data);
+
+  // Class distribution chart
+  if (data.problem_type !== 'regression' && data.class_distribution) {
+    document.getElementById('chartSection').style.display = 'block';
+    buildClassChart(data.class_distribution);
+  } else {
+    document.getElementById('chartSection').style.display = 'none';
+  }
+}
+
+function buildFeatureTable(data) {
+  const ft      = data.feature_types || {};
+  const missing = data.missing_values || {};
+  const preview = data.preview || [];
+  const cols    = Object.keys(ft);
+  const thead   = document.querySelector('#featureTable thead');
+  const tbody   = document.querySelector('#featureTable tbody');
+
+  thead.innerHTML = '<tr><th>#</th><th>Column</th><th>Type</th><th>Missing</th><th>Sample values</th></tr>';
+  tbody.innerHTML = cols.map((col, i) => {
+    const type    = ft[col];
+    const missCnt = missing[col] || 0;
+    const missPct = data.n_rows ? ((missCnt / data.n_rows) * 100).toFixed(1) : 0;
+    const samples = preview.map(r => r[col]).filter(v => v !== null && v !== undefined).slice(0, 3).join(', ');
+    const barW    = Math.min(missPct * 2, 60);
+    const typeClass = type === 'numeric' ? 'type-numeric' : type === 'categorical' ? 'type-categorical' : 'type-datetime';
+    return `<tr>
+      <td style="color:#475569">${i+1}</td>
+      <td style="font-weight:600">${col}</td>
+      <td><span class="type-badge ${typeClass}">${type}</span></td>
+      <td>
+        ${missPct > 0 ? `<span class="missing-bar" style="width:${barW}px"></span>` : ''}
+        ${missPct}%
+      </td>
+      <td style="color:#64748b;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${samples}</td>
+    </tr>`;
+  }).join('');
+}
+
+function buildClassChart(dist) {
+  const labels = Object.keys(dist).map(String);
+  const values = Object.values(dist);
+  const total  = values.reduce((a,b) => a+b, 0);
+  const colors = ['#3b82f6','#6366f1','#8b5cf6','#a78bfa','#60a5fa'];
+
+  if (classChartInst) classChartInst.destroy();
+  classChartInst = new Chart(document.getElementById('classChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Count',
+        data: values,
+        backgroundColor: labels.map((_, i) => colors[i % colors.length]),
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.raw} (${((ctx.raw/total)*100).toFixed(1)}%)`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e2130' } },
+        y: { ticks: { color: '#94a3b8' }, grid: { color: '#2d3148' } },
+      }
+    }
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Target column override
+// ─────────────────────────────────────────────────────────────────────────────
+async function onTargetChange() {
+  const target = document.getElementById('targetSelect').value;
+  const res  = await fetch('/api/set-target-column', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ dataset_id: activeDatasetId, target_column: target }),
+  });
+  const data = await res.json();
+  if (res.ok) {
+    document.getElementById('targetProblemType').textContent = '← ' + data.problem_type.replace(/_/g,' ');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Run pipeline
+// ─────────────────────────────────────────────────────────────────────────────
+async function runPipeline() {
+  document.getElementById('runBtn').disabled = true;
+  showProgress(0);
+
+  // Simulate step progression while waiting for the real response
+  const stepDelay = [0, 600, 1200, 2000, 3200, 4400];
+  stepDelay.forEach((ms, i) => setTimeout(() => advanceStep(i), ms));
+
+  const res  = await fetch('/api/run-pipeline', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ dataset_id: activeDatasetId }),
+  });
+  const data = await res.json();
+
+  // Finish all steps
+  PIPELINE_STEPS.forEach((_, i) => advanceStep(i));
+  setProgressMsg('Pipeline complete — redirecting to dashboard…');
+
+  await sleep(900);
+  hideProgress();
+  document.getElementById('runBtn').disabled = false;
+
+  if (!res.ok) { showError(data.error || 'Pipeline failed.'); return; }
+  window.location.href = '/dashboard';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Progress helpers
+// ─────────────────────────────────────────────────────────────────────────────
+function showProgress(startStep) {
+  const el = document.getElementById('pipeline-progress');
+  el.style.display = 'block';
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  const row = document.getElementById('stepsRow');
+  row.innerHTML = PIPELINE_STEPS.map((s, i) => `
+    <div class="step" id="step-${i}">
+      <div class="step-dot">${i+1}</div>
+      <div class="step-label">${s}</div>
+    </div>`).join('');
+
+  document.getElementById('progressBar').style.width = '0%';
+  setProgressMsg('Starting…');
+}
+
+function advanceStep(idx) {
+  // Mark all previous as done, current as active
+  PIPELINE_STEPS.forEach((_, i) => {
+    const el = document.getElementById(`step-${i}`);
+    if (!el) return;
+    el.classList.remove('active','done');
+    if (i < idx)  el.classList.add('done');
+    if (i === idx) el.classList.add('active');
+    // Checkmark for done
+    const dot = el.querySelector('.step-dot');
+    if (i < idx)  dot.textContent = '✓';
+    if (i === idx) dot.textContent = String(i+1);
+  });
+  const pct = Math.round(((idx) / (PIPELINE_STEPS.length - 1)) * 100);
+  document.getElementById('progressBar').style.width = pct + '%';
+  setProgressMsg(PIPELINE_STEPS[idx] + '…');
+}
+
+function setProgressMsg(msg) { document.getElementById('progress-msg').textContent = msg; }
+function hideProgress() { document.getElementById('pipeline-progress').style.display = 'none'; }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Misc
+// ─────────────────────────────────────────────────────────────────────────────
+function showError(msg) {
+  document.getElementById('upload-error').innerHTML =
+    `<div class="alert alert-error">${msg}</div>`;
+}
+function clearError() { document.getElementById('upload-error').innerHTML = ''; }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+</body>
+</html>

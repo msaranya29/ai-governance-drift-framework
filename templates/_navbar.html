@@ -1,0 +1,27 @@
+<nav class="navbar navbar-expand-lg">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/dashboard">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z"/></svg>
+      AI Governance Framework
+    </a>
+    <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navMenu">
+      <ul class="navbar-nav me-auto gap-1 ms-3">
+        <li class="nav-item"><a class="nav-link {% if active_page=='dashboard' %}active{% endif %}" href="/dashboard">Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link {% if active_page=='model_comparison' %}active{% endif %}" href="/model-comparison">Model Comparison</a></li>
+        <li class="nav-item"><a class="nav-link {% if active_page=='drift_monitor' %}active{% endif %}" href="/drift-monitor">Drift Monitor</a></li>
+        <li class="nav-item"><a class="nav-link {% if active_page=='alerts' %}active{% endif %}" href="/alerts">Alerts</a></li>
+        <li class="nav-item"><a class="nav-link" href="/upload">Upload New Dataset</a></li>
+      </ul>
+      <div class="d-flex align-items-center gap-3">
+        <span class="dataset-badge" id="nav-dataset-badge">No dataset</span>
+        <div class="alert-bell" onclick="window.location='/alerts'">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="badge bg-danger" id="nav-alert-count" style="display:none">0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>

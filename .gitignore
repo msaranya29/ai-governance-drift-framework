@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Flask session / instance
+instance/
+flask_session/
+
+# Uploaded user files (keep folder, not contents)
+data/uploads/*
+!data/uploads/.gitkeep
+
+# Generated sample data (regenerated on first run)
+data/samples/*
+!data/samples/.gitkeep
+
+# Generated reports
+reports/*.html
+reports/*.pdf
+!reports/__init__.py
+
+# Saved models
+models/saved/*
+!models/saved/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb

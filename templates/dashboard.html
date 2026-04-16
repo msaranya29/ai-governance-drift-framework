@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Dashboard — AI Governance Framework</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"/>
+<link rel="stylesheet" href="/static/css/style.css"/>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+{% with active_page='dashboard' %}{% include '_navbar.html' %}{% endwith %}
+
+<div class="container-fluid px-4 pt-4">
+
+  <!-- KPI Row -->
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+      <div class="kpi-card blue" id="kpi-model-card">
+        <div class="kpi-label">Best Model</div>
+        <div class="kpi-value" id="kpi-model-name">—</div>
+        <div class="kpi-sub" id="kpi-model-type">—</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="kpi-card green">
+        <div class="kpi-label">Best Score</div>
+        <div class="kpi-value" id="kpi-accuracy">—</div>
+        <div class="kpi-sub" id="kpi-accuracy-sub"></div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="kpi-card green" id="kpi-drift-card">
+        <div class="kpi-label">Drift Status</div>
+        <div class="kpi-value" style="font-size:1.3rem" id="kpi-drift-status">—</div>
+        <div class="kpi-sub" id="kpi-drift-sub"></div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="kpi-card green" id="kpi-alert-card">
+        <div class="kpi-label">Total Alerts</div>
+        <div class="kpi-value" id="kpi-alert-count">0</div>
+        <div class="kpi-sub" id="kpi-alert-sub"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 2 -->
+  <div class="row g-3 mb-4">
+    <div class="col-lg-7">
+      <div class="chart-container h-100">
+        <div class="section-title">Model Performance Over Incoming Data Batches</div>
+        <div id="perf-chart" class="plotly-chart"></div>
+      </div>
+    </div>
+    <div class="col-lg-5">
+      <div class="chart-container h-100">
+        <div class="section-title">Drift Detection Summary</div>
+        <div id="drift-summary-rows"></div>
+        <div class="text-center mt-3">
+          <span class="consensus-badge" id="consensus-badge" style="background:rgba(46,204,113,.15);color:#2ecc71;border:1px solid #2ecc71">CONSENSUS: NO DRIFT</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 3 -->
+  <div class="row g-3 mb-4">
+    <div class="col-lg-6">
+      <div class="chart-container">
+        <div class="section-title">Per-Feature Drift (PSI)</div>
+        <div id="drift-bar-chart" class="plotly-chart"></div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="chart-container">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="section-title mb-0">Recent Alerts</div>
+          <a href="/alerts" class="btn btn-sm btn-outline-secondary" style="font-size:.75rem;border-radius:20px">View All</a>
+        </div>
+        <div class="table-responsive">
+          <table class="table-dark-custom w-100">
+            <thead><tr><th>Time</th><th>Level</th><th>Message</th><th>Action</th></tr></thead>
+            <tbody id="alerts-mini-body"><tr><td colspan="4" class="text-center" style="color:var(--text-muted);padding:20px">No alerts yet</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Action bar -->
+<div class="action-bar">
+  <button class="btn btn-accent-green btn-sm" onclick="retrainModel()">🔁 Retrain Model</button>
+  <button class="btn btn-accent-blue btn-sm" onclick="window.open('/api/generate-report','_blank')">📄 Generate Report</button>
+  <button class="btn btn-accent-yellow btn-sm" onclick="simulateNextBatch()">▶ Simulate Next Batch</button>
+  <a href="/upload" class="btn btn-outline-secondary btn-sm ms-auto">📤 Upload New Dataset</a>
+</div>
+
+<div id="loading-overlay"><div class="spinner-border"></div><div class="load-text">Processing…</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/js/dashboard.js"></script>
+<script>
+function renderDriftSummary(driftData) {
+  const rows = document.getElementById('drift-summary-rows');
+  const psi  = driftData.overall_psi || 0;
+  const kl   = Object.values(driftData.kl_scores || {});
+  const klAvg= kl.length ? kl.reduce((a,b)=>a+b,0)/kl.length : 0;
+  const sevClass = s => s==='No Drift'?'badge-no-drift':s==='Moderate'?'badge-moderate':'badge-severe';
+  const klSev = klAvg>0.2?'Severe':klAvg>0.1?'Moderate':'No Drift';
+
+  const detectors = [
+    { name:'PSI Detector',  score:psi.toFixed(4),   sev: driftData.psi_severity||'No Drift' },
+    { name:'KL Divergence', score:klAvg.toFixed(4), sev: klSev },
+    { name:'ADWIN (River)', score:'—',              sev: driftData.alert?'Severe':'No Drift' },
+  ];
+  rows.innerHTML = detectors.map(d=>`
+    <div class="detector-feature-row">
+      <span style="font-size:.85rem;font-weight:600">${d.name}</span>
+      <span style="color:var(--text-muted);font-size:.8rem">${d.score}</span>
+      <span class="badge ${sevClass(d.sev)}">${d.sev}</span>
+    </div>`).join('');
+
+  const overall = driftData.psi_severity||'No Drift';
+  const cb = document.getElementById('consensus-badge');
+  const styles = {
+    'No Drift':'background:rgba(46,204,113,.15);color:#2ecc71;border:1px solid #2ecc71',
+    'Moderate':'background:rgba(243,156,18,.15);color:#f39c12;border:1px solid #f39c12',
+    'Severe':  'background:rgba(231,76,60,.15);color:#e74c3c;border:1px solid #e74c3c',
+  };
+  cb.style.cssText = styles[overall]||styles['No Drift'];
+  cb.textContent = 'CONSENSUS: '+overall.toUpperCase();
+}
+
+function renderAlertsTable(alerts) {
+  const tbody = document.getElementById('alerts-mini-body');
+  if (!tbody) return;
+  const last5 = alerts.slice(-5).reverse();
+  if (!last5.length) {
+    tbody.innerHTML='<tr><td colspan="4" class="text-center" style="color:var(--text-muted);padding:20px">No alerts yet</td></tr>';
+    return;
+  }
+  const rowClass   = l=>l==='CRITICAL'?'row-critical':l==='WARNING'?'row-warning':'row-info';
+  const badgeClass = l=>l==='CRITICAL'?'badge-level-critical':l==='WARNING'?'badge-level-warning':'badge-level-info';
+  tbody.innerHTML = last5.map(a=>`
+    <tr class="${rowClass(a.level)}">
+      <td style="white-space:nowrap;font-size:.78rem">${a.timestamp.slice(11,16)}</td>
+      <td><span class="badge ${badgeClass(a.level)}">${a.level}</span></td>
+      <td style="font-size:.8rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.message}</td>
+      <td style="font-size:.78rem;color:var(--text-muted)">${a.action||''}</td>
+    </tr>`).join('');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Alert Center — AI Governance Framework</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"/>
+<link rel="stylesheet" href="/static/css/style.css"/>
+</head>
+<body>
+{% with active_page='alerts' %}{% include '_navbar.html' %}{% endwith %}
+
+<div class="container-fluid px-4 pt-4">
+
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-1">Alert Center</h4>
+      <div style="color:var(--text-muted);font-size:.85rem" id="alert-summary">Loading…</div>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary" style="border-radius:20px" onclick="markAllRead()">
+      ✓ Mark all as read
+    </button>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="d-flex gap-2 mb-4 flex-wrap">
+    <button class="btn btn-sm filter-btn active" data-filter="all"     onclick="setFilter('all',this)">All</button>
+    <button class="btn btn-sm filter-btn" data-filter="CRITICAL"       onclick="setFilter('CRITICAL',this)">Critical</button>
+    <button class="btn btn-sm filter-btn" data-filter="WARNING"        onclick="setFilter('WARNING',this)">Warning</button>
+    <button class="btn btn-sm filter-btn" data-filter="INFO"           onclick="setFilter('INFO',this)">Info</button>
+    <button class="btn btn-sm filter-btn" data-filter="unread"         onclick="setFilter('unread',this)">Unread Only</button>
+  </div>
+
+  <!-- Alerts table -->
+  <div class="chart-container mb-4">
+    <div class="table-responsive">
+      <table class="table-dark-custom w-100" id="alerts-table">
+        <thead>
+          <tr>
+            <th style="width:36px">#</th>
+            <th>Timestamp</th>
+            <th>Dataset</th>
+            <th>Level</th>
+            <th>Message</th>
+            <th>Recommended Action</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="alerts-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Empty state -->
+    <div id="empty-state" style="display:none;text-align:center;padding:60px 20px">
+      <div style="font-size:2.5rem;margin-bottom:12px">✅</div>
+      <div style="font-size:1.1rem;font-weight:600;color:var(--accent-green)">All clear — no alerts generated</div>
+      <div style="color:var(--text-muted);font-size:.88rem;margin-top:6px">Run the pipeline to start monitoring.</div>
+    </div>
+  </div>
+
+</div>
+
+<div id="loading-overlay"><div class="spinner-border"></div><div class="load-text">Loading…</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/js/dashboard.js"></script>
+<script>
+let _allAlerts  = [];
+let _activeFilter = 'all';
+
+const badgeClass = l => l==='CRITICAL'?'badge-level-critical':l==='WARNING'?'badge-level-warning':'badge-level-info';
+const rowClass   = l => l==='CRITICAL'?'row-critical':l==='WARNING'?'row-warning':'row-info';
+
+async function loadAlerts() {
+  const res  = await fetch('/api/alerts');
+  if (!res.ok) return;
+  const data = await res.json();
+  _allAlerts = data.alerts || [];
+
+  const crit = _allAlerts.filter(a=>a.level==='CRITICAL').length;
+  const warn = _allAlerts.filter(a=>a.level==='WARNING').length;
+  const info = _allAlerts.filter(a=>a.level==='INFO').length;
+  document.getElementById('alert-summary').textContent =
+    `${crit} Critical  |  ${warn} Warning  |  ${info} Info  |  ${data.unread} Unread`;
+
+  renderTable();
+}
+
+function setFilter(f, btn) {
+  _activeFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTable();
+}
+
+function renderTable() {
+  let rows = _allAlerts;
+  if (_activeFilter === 'unread')  rows = rows.filter(a => !a.read);
+  else if (_activeFilter !== 'all') rows = rows.filter(a => a.level === _activeFilter);
+
+  const tbody = document.getElementById('alerts-tbody');
+  const empty = document.getElementById('empty-state');
+
+  if (!rows.length) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  tbody.innerHTML = [...rows].reverse().map((a, i) => `
+    <tr class="${rowClass(a.level)}" style="cursor:pointer" onclick="toggleDetail(${a.id})">
+      <td style="color:var(--text-muted)">${a.id}</td>
+      <td style="white-space:nowrap;font-size:.82rem">${a.timestamp}</td>
+      <td style="font-size:.82rem;color:var(--text-muted)">${a.dataset||'—'}</td>
+      <td><span class="badge ${badgeClass(a.level)}">${a.level}</span></td>
+      <td style="font-size:.85rem;max-width:260px">${a.message}</td>
+      <td style="font-size:.82rem;color:var(--text-muted);max-width:200px">${a.action||'—'}</td>
+      <td>
+        <span class="badge ${a.read?'badge-read':'badge-unread'}" id="status-badge-${a.id}">
+          ${a.read?'Read':'Unread'}
+        </span>
+      </td>
+    </tr>
+    <tr class="alert-detail" id="detail-${a.id}">
+      <td colspan="7">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div>
+            <strong>Full message:</strong> ${a.message}<br/>
+            <strong>Action:</strong> ${a.action||'No action specified'}<br/>
+            <strong>Time:</strong> ${a.timestamp}
+          </div>
+          <button class="btn btn-sm btn-accent-blue" onclick="markRead(${a.id},event)" style="border-radius:20px;font-size:.78rem">
+            Mark as Read
+          </button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+function toggleDetail(id) {
+  const row = document.getElementById(`detail-${id}`);
+  if (row) row.classList.toggle('show');
+}
+
+async function markRead(id, e) {
+  e.stopPropagation();
+  await fetch(`/api/alerts/${id}/read`, { method:'POST' });
+  const a = _allAlerts.find(x=>x.id===id);
+  if (a) a.read = true;
+  const badge = document.getElementById(`status-badge-${id}`);
+  if (badge) { badge.className='badge badge-read'; badge.textContent='Read'; }
+  hydrateNavbar();
+}
+
+async function markAllRead() {
+  await Promise.all(_allAlerts.filter(a=>!a.read).map(a =>
+    fetch(`/api/alerts/${a.id}/read`, { method:'POST' })
+  ));
+  _allAlerts.forEach(a => a.read = true);
+  renderTable();
+  hydrateNavbar();
+  showToast('All alerts marked as read', 'success');
+}
+
+loadAlerts();
+</script>
+</body>
+</html>
