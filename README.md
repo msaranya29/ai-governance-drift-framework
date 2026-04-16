@@ -5,19 +5,6 @@ for concept drift and ensures reliable decision-making in production environment
 
 ---
 
-## Team
-
-| Name | USN |
-|---|---|
-| M Saranya | R23EO013 |
-| Suchitra S | R23EQ116 |
-| Syed Umer S | R23EQ121 |
-| Vishal Thomas | R23EQ133 |
-
-**Guide:** Dr. B. MuthuKumar  
-**Institution:** REVA University, Dept. of Computer Science & Engineering
-
----
 
 ## Setup
 
