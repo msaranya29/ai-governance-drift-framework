@@ -224,11 +224,12 @@ function renderDriftChart(driftData) {
 // fetchDashboardData  (main refresh loop)
 // ─────────────────────────────────────────────────────────────────────────────
 async function fetchDashboardData() {
+  const did = (typeof DATASET_ID !== 'undefined' && DATASET_ID) ? `?dataset_id=${DATASET_ID}` : '';
   try {
     const [perfRes, driftRes, alertRes] = await Promise.all([
-      fetch('/api/performance-metrics'),
-      fetch('/api/drift-status'),
-      fetch('/api/alerts'),
+      fetch('/api/performance-metrics' + did),
+      fetch('/api/drift-status' + did),
+      fetch('/api/alerts' + did),
     ]);
     const perf  = perfRes.ok  ? await perfRes.json()  : null;
     const drift = driftRes.ok ? await driftRes.json() : null;
@@ -247,13 +248,20 @@ async function fetchDashboardData() {
 // simulateNextBatch
 // ─────────────────────────────────────────────────────────────────────────────
 async function simulateNextBatch() {
+  const did = (typeof DATASET_ID !== 'undefined' && DATASET_ID) ? DATASET_ID : '';
   showLoading('Simulating next batch…');
   try {
-    const res  = await fetch('/api/simulate-batch', { method: 'POST' });
+    const res  = await fetch('/api/simulate-batch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ dataset_id: did }),
+    });
     const data = await res.json();
     hideLoading();
     if (!res.ok) { showToast(data.error || 'Simulation failed', 'error'); return; }
-    showToast(`Batch ${data.batch_id} processed — PSI: ${data.overall_psi.toFixed(4)}`, data.alert ? 'warning' : 'success');
+    const winner = data.best_model ? ` | Best: ${data.best_model} (${data.best_score})` : '';
+    showToast(`Batch ${data.batch_id} — PSI: ${data.overall_psi.toFixed(4)}${winner}`,
+              data.alert ? 'warning' : 'success');
     fetchDashboardData();
   } catch (e) { hideLoading(); showToast('Simulation error', 'error'); }
 }
@@ -262,9 +270,14 @@ async function simulateNextBatch() {
 // retrainModel
 // ─────────────────────────────────────────────────────────────────────────────
 async function retrainModel() {
+  const did = (typeof DATASET_ID !== 'undefined' && DATASET_ID) ? DATASET_ID : '';
   showLoading('Retraining model…');
   try {
-    const res  = await fetch('/api/retrain', { method: 'POST' });
+    const res  = await fetch('/api/retrain', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ dataset_id: did }),
+    });
     const data = await res.json();
     hideLoading();
     if (!res.ok) { showToast(data.error || 'Retrain failed', 'error'); return; }
@@ -274,11 +287,13 @@ async function retrainModel() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Auto-refresh every 30 s
+// Auto-refresh — dashboard.html owns the loop via refreshAll()
+// This fires only on pages that don't define refreshAll (alerts, drift-monitor etc.)
 // ─────────────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   hydrateNavbar();
-  if (typeof fetchDashboardData === 'function') {
+  // refreshAll is defined in dashboard.html — don't double-call here
+  if (typeof refreshAll === 'undefined' && typeof fetchDashboardData === 'function') {
     fetchDashboardData();
     setInterval(fetchDashboardData, 30000);
   }

@@ -143,7 +143,10 @@ def dashboard():
     active = session.get('active_dataset_id')
     if not active or active not in DATASET_REGISTRY:
         return redirect(url_for('upload_page'))
-    return render_template('dashboard.html')
+    meta = DATASET_REGISTRY[active]
+    return render_template('dashboard.html',
+                           dataset_id=active,
+                           filename=meta['filename'])
 
 # ---------------------------------------------------------------------------
 # API — dataset management
@@ -240,13 +243,15 @@ def api_run_pipeline():
         synth_drift   = dm.check_drift(drifted_df_feat)
 
         # Store manager in registry for later /api/drift-status calls
-        meta['drift_manager']  = dm
-        meta['best_model']     = best_model
-        meta['best_model_name']= best_name
-        meta['feature_names']  = feature_names
-        meta['scaler']         = scaler
+        meta['drift_manager']   = dm
+        meta['best_model']      = best_model
+        meta['best_model_name'] = best_name
+        meta['feature_names']   = feature_names
+        meta['scaler']          = scaler
+        meta['trained_models']  = models
+        meta['y_test']          = y_test
 
-        return jsonify({
+        result_data = {
             'dataset_id':    dataset_id,
             'problem_type':  profile.problem_type,
             'best_model':    best_name,
@@ -268,7 +273,25 @@ def api_run_pipeline():
                     'psi_table':        synth_drift.psi_report.to_dataframe().to_dict(orient='records'),
                 },
             },
-        })
+        }
+
+        # Store directly — no patch needed
+        meta['pipeline_results'] = result_data
+
+        # Generate alerts
+        if synth_drift.alert:
+            _add_alert(dataset_id, 'CRITICAL',
+                       f"Severe drift in synthetic batch. PSI={synth_drift.overall_psi:.4f}",
+                       'Retrain model immediately.')
+        if stream_drift.alert:
+            _add_alert(dataset_id, 'WARNING',
+                       f"Drift in incoming stream. PSI={stream_drift.overall_psi:.4f}",
+                       'Monitor closely and consider retraining.')
+        _add_alert(dataset_id, 'INFO',
+                   f"Pipeline completed. Best model: {best_name}",
+                   'Review model comparison page.')
+
+        return jsonify(result_data)
 
     except Exception as exc:
         logger.exception("Pipeline failed for dataset %s", dataset_id)
@@ -372,6 +395,92 @@ def api_performance_metrics():
     return jsonify(results)
 
 
+@app.route('/api/batch-model-history', methods=['GET'])
+def api_batch_model_history():
+    """Returns per-batch best model and all model scores — for dynamic model selection table."""
+    dataset_id = _resolve_dataset_id()
+    if not dataset_id or dataset_id not in DATASET_REGISTRY:
+        return jsonify({'error': 'No active dataset.'}), 404
+
+    meta    = DATASET_REGISTRY[dataset_id]
+    pr      = meta.get('pipeline_results') or {}
+    batches = pr.get('batch_metrics', [])
+    profile = meta['profile']
+    is_reg  = profile.problem_type == 'regression'
+    score_col = 'R²' if is_reg else 'F1'
+
+    # Tally wins per model across all batches
+    win_counts = {}
+    score_sums = {}
+    score_cnts = {}
+    for b in batches:
+        bm = b.get('best_model')
+        if bm:
+            win_counts[bm] = win_counts.get(bm, 0) + 1
+        for name, score in (b.get('model_scores') or {}).items():
+            if score is not None:
+                score_sums[name] = score_sums.get(name, 0) + score
+                score_cnts[name] = score_cnts.get(name, 0) + 1
+
+    avg_scores = {
+        name: round(score_sums[name] / score_cnts[name], 4)
+        for name in score_sums
+    }
+
+    # Overall best = most wins; avg score breaks ties
+    if win_counts:
+        overall_best = max(win_counts, key=lambda n: (win_counts[n], avg_scores.get(n, 0)))
+    elif avg_scores:
+        overall_best = max(avg_scores, key=avg_scores.get)
+    else:
+        overall_best = meta.get('best_model_name', '')
+
+    # Build final verdict
+    verdict = {}
+    if overall_best and batches:
+        wins      = win_counts.get(overall_best, 0)
+        avg       = avg_scores.get(overall_best, 0)
+        n_batches = len(batches)
+        ensemble_kw = ['Voting','Stacking','Bagging','AdaBoost']
+        model_type  = 'Ensemble' if any(k in overall_best for k in ensemble_kw) else 'Individual'
+        win_pct     = wins / n_batches if n_batches else 0
+        consistency = 'Highly consistent' if win_pct >= 0.6 else \
+                      'Moderately consistent' if win_pct >= 0.4 else 'Variable'
+
+        # Runner-up
+        runner_up = ''
+        if len(win_counts) > 1:
+            others = {k: v for k, v in win_counts.items() if k != overall_best}
+            runner_up_name = max(others, key=lambda n: (others[n], avg_scores.get(n, 0)))
+            runner_up = f" Runner-up: {runner_up_name} ({others[runner_up_name]} wins)."
+
+        verdict = {
+            'model':       overall_best,
+            'avg_score':   avg,
+            'wins':        wins,
+            'n_batches':   n_batches,
+            'model_type':  model_type,
+            'consistency': consistency,
+            'score_col':   score_col,
+            'recommendation': (
+                f"{overall_best} is recommended for production deployment. "
+                f"It won the most batches — {wins} out of {n_batches} "
+                f"({win_pct*100:.0f}%) with an average {score_col} of {avg:.4f}."
+                f"{runner_up} {consistency} performer across all batches."
+            )
+        }
+
+    return jsonify({
+        'score_col':     score_col,
+        'batch_history': batches,
+        'win_counts':    win_counts,
+        'avg_scores':    avg_scores,
+        'overall_best':  overall_best,
+        'n_batches':     len(batches),
+        'verdict':       verdict,
+    })
+
+
 @app.route('/api/model-comparison', methods=['GET'])
 def api_model_comparison():
     dataset_id = _resolve_dataset_id()
@@ -457,32 +566,91 @@ def api_simulate_batch():
     if dm is None:
         return jsonify({'error': 'Pipeline not run yet.'}), 400
 
+    # ── Enforce 10-batch limit ───────────────────────────────────────────────
+    pr            = meta.get('pipeline_results') or {}
+    batch_metrics = pr.get('batch_metrics', [])
+    MAX_BATCHES   = 10
+
+    if len(batch_metrics) >= MAX_BATCHES:
+        return jsonify({
+            'error':       'limit_reached',
+            'message':     f'Maximum of {MAX_BATCHES} batches reached.',
+            'max_batches': MAX_BATCHES,
+        }), 400
+
     import numpy as np
+    from sklearn.metrics import f1_score, r2_score
+
     baseline  = dm.baseline_df.copy()
     new_batch = baseline + np.random.normal(0, 0.5, baseline.shape)
     result    = dm.check_drift(new_batch)
+    profile      = meta['profile']
+    is_reg       = profile.problem_type == 'regression'
+    score_col    = 'r2' if is_reg else 'f1'
+    trained_models = meta.get('trained_models', {})
+    scaler       = meta.get('scaler')
+
+    batch_model_scores = {}
+    if trained_models:
+        # Build batch labels by running the original model on baseline labels
+        # We use the stored y_test as a proxy ground truth for scoring
+        y_batch_true = meta.get('y_test')
+        X_batch      = new_batch.values[:len(y_batch_true)] if y_batch_true is not None else None
+
+        if X_batch is not None and y_batch_true is not None:
+            for name, model in trained_models.items():
+                try:
+                    y_pred = model.predict(X_batch)
+                    if is_reg:
+                        score = round(float(r2_score(y_batch_true, y_pred)), 4)
+                    else:
+                        score = round(float(f1_score(y_batch_true, y_pred,
+                                                      average='weighted', zero_division=0)), 4)
+                    batch_model_scores[name] = score
+                except Exception:
+                    batch_model_scores[name] = None
+
+    batch_best_model = None
+    batch_best_score = None
+    if batch_model_scores:
+        valid = {k: v for k, v in batch_model_scores.items() if v is not None}
+        if valid:
+            batch_best_model = max(valid, key=valid.get)
+            batch_best_score = valid[batch_best_model]
 
     if result.alert:
         _add_alert(dataset_id, 'WARNING',
                    f'Drift detected in batch {result.batch_id}. PSI={result.overall_psi:.4f}',
                    'Review drifted features and consider retraining.')
 
+    if batch_best_model:
+        _add_alert(dataset_id, 'INFO',
+                   f'Batch {result.batch_id}: best model is {batch_best_model} '
+                   f'({score_col.upper()}={batch_best_score})',
+                   'Dynamic model selection updated.')
+
     pr = meta.get('pipeline_results') or {}
     batch_metrics = pr.get('batch_metrics', [])
     batch_metrics.append({
-        'batch_id':  result.batch_id,
-        'overall_psi': result.overall_psi,
-        'n_drifted': len(result.drifted_features),
-        'alert':     result.alert,
+        'batch_id':        result.batch_id,
+        'overall_psi':     result.overall_psi,
+        'n_drifted':       len(result.drifted_features),
+        'alert':           result.alert,
+        'best_model':      batch_best_model,
+        'best_score':      batch_best_score,
+        'model_scores':    batch_model_scores,
     })
     pr['batch_metrics'] = batch_metrics
     meta['pipeline_results'] = pr
 
     return jsonify({
-        'batch_id':    result.batch_id,
-        'overall_psi': result.overall_psi,
-        'alert':       result.alert,
-        'drifted':     result.drifted_features,
+        'batch_id':         result.batch_id,
+        'overall_psi':      result.overall_psi,
+        'alert':            result.alert,
+        'drifted':          result.drifted_features,
+        'best_model':       batch_best_model,
+        'best_score':       batch_best_score,
+        'model_scores':     batch_model_scores,
     })
 
 
@@ -544,7 +712,7 @@ def model_comparison_page():
     active = session.get('active_dataset_id')
     if not active or active not in DATASET_REGISTRY:
         return redirect(url_for('upload_page'))
-    return render_template('model_comparison.html')
+    return render_template('model_comparison.html', dataset_id=active)
 
 
 @app.route('/drift-monitor')
@@ -552,12 +720,13 @@ def drift_monitor_page():
     active = session.get('active_dataset_id')
     if not active or active not in DATASET_REGISTRY:
         return redirect(url_for('upload_page'))
-    return render_template('drift_monitor.html')
+    return render_template('drift_monitor.html', dataset_id=active)
 
 
 @app.route('/alerts')
 def alerts_page():
-    return render_template('alerts.html')
+    active = session.get('active_dataset_id', '')
+    return render_template('alerts.html', dataset_id=active)
 
 
 # ---------------------------------------------------------------------------
@@ -586,41 +755,6 @@ def _psi_severity_label(psi: float) -> str:
     if psi < 0.1:  return 'No Drift'
     if psi < 0.2:  return 'Moderate'
     return 'Severe'
-
-
-# Patch api_run_pipeline to store results and generate alerts
-_orig_run = app.view_functions['api_run_pipeline']
-
-def _patched_run_pipeline():
-    resp = _orig_run()
-    try:
-        # resp may be a Response object or a (Response, status) tuple
-        response_obj = resp[0] if isinstance(resp, tuple) else resp
-        if hasattr(response_obj, 'get_json'):
-            data = response_obj.get_json(silent=True)
-            if data and 'dataset_id' in data:
-                did = data['dataset_id']
-                if did in DATASET_REGISTRY:
-                    DATASET_REGISTRY[did]['pipeline_results'] = data
-                    drift = data.get('drift', {})
-                    synth = drift.get('synthetic', {})
-                    if synth.get('alert'):
-                        _add_alert(did, 'CRITICAL',
-                                   f"Severe drift in synthetic batch. PSI={synth.get('overall_psi',0):.4f}",
-                                   'Retrain model immediately.')
-                    stream = drift.get('stream', {})
-                    if stream.get('alert'):
-                        _add_alert(did, 'WARNING',
-                                   f"Drift in incoming stream. PSI={stream.get('overall_psi',0):.4f}",
-                                   'Monitor closely and consider retraining.')
-                    _add_alert(did, 'INFO',
-                               f"Pipeline completed. Best model: {data.get('best_model','N/A')}",
-                               'Review model comparison page.')
-    except Exception as e:
-        logger.warning("Pipeline patch error: %s", e)
-    return resp
-
-app.view_functions['api_run_pipeline'] = _patched_run_pipeline
 
 
 # ---------------------------------------------------------------------------

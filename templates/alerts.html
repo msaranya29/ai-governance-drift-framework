@@ -71,8 +71,10 @@ let _activeFilter = 'all';
 const badgeClass = l => l==='CRITICAL'?'badge-level-critical':l==='WARNING'?'badge-level-warning':'badge-level-info';
 const rowClass   = l => l==='CRITICAL'?'row-critical':l==='WARNING'?'row-warning':'row-info';
 
+const DATASET_ID = "{{ dataset_id }}";
+
 async function loadAlerts() {
-  const res  = await fetch('/api/alerts');
+  const res  = await fetch('/api/alerts?dataset_id=' + DATASET_ID);
   if (!res.ok) return;
   const data = await res.json();
   _allAlerts = data.alerts || [];

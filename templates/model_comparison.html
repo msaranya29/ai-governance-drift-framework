@@ -81,8 +81,10 @@ const isEnsemble  = n => ENSEMBLE_KW.some(k => n.includes(k));
 let _tableData = [];
 let _sortDir   = {};
 
+const DATASET_ID = "{{ dataset_id }}";
+
 async function loadComparison() {
-  const res  = await fetch('/api/model-comparison');
+  const res  = await fetch('/api/model-comparison?dataset_id=' + DATASET_ID);
   if (!res.ok) { document.getElementById('page-subtitle').textContent = 'Pipeline not run yet.'; return; }
   const data = await res.json();
 

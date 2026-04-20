@@ -87,13 +87,99 @@
     </div>
   </div>
 
+  <!-- Row 4 — Dynamic Model Selection -->
+  <div class="row g-3 mb-4">
+    <div class="col-12">
+      <div class="chart-container">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div>
+            <div class="section-title mb-0">Dynamic Model Selection — Per Batch</div>
+            <div style="font-size:.78rem;color:var(--text-muted);margin-top:4px">
+              Best performing model is re-evaluated on every incoming batch. Overall winner is determined by highest average score across all batches.
+            </div>
+          </div>
+          <span class="badge" id="overall-best-badge" style="background:rgba(46,204,113,.15);color:#2ecc71;border:1px solid #2ecc71;font-size:.8rem;padding:6px 14px">
+            Overall Best: —
+          </span>
+        </div>
+
+        <!-- Summary cards row -->
+        <div id="model-win-cards" class="d-flex gap-2 flex-wrap mb-3"></div>
+
+        <!-- Per-batch table -->
+        <div class="table-responsive">
+          <table class="table-dark-custom w-100" id="batch-model-table">
+            <thead>
+              <tr>
+                <th>Batch</th>
+                <th>Best Model This Batch</th>
+                <th id="score-col-header">Score</th>
+                <th>PSI</th>
+                <th>Drift Alert</th>
+                <th>All Model Scores</th>
+              </tr>
+            </thead>
+            <tbody id="batch-model-tbody">
+              <tr><td colspan="6" class="text-center" style="color:var(--text-muted);padding:20px">
+                Click "Simulate Next Batch" to see dynamic model selection in action.
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Win count bar chart -->
+        <div id="win-count-chart" style="min-height:220px;margin-top:16px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 5 — Final Verdict -->
+  <div class="row g-3 mb-4" id="verdict-row" style="display:none">
+    <div class="col-12">
+      <div id="verdict-box" style="
+        border-radius:12px;padding:28px 32px;
+        background:linear-gradient(135deg,rgba(46,204,113,.12),rgba(79,142,247,.08));
+        border:1px solid rgba(46,204,113,.35);">
+        <div style="font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#2ecc71;margin-bottom:10px">
+          Final Verdict
+        </div>
+        <div class="d-flex align-items-center gap-3 flex-wrap mb-3">
+          <div style="font-size:2rem">🏆</div>
+          <div>
+            <div style="font-size:1.6rem;font-weight:700;color:#e8eaf0" id="verdict-model">—</div>
+            <div style="font-size:.82rem;color:#8b92a9" id="verdict-type">—</div>
+          </div>
+          <div class="ms-auto text-end">
+            <div style="font-size:1.4rem;font-weight:700;color:#2ecc71" id="verdict-score">—</div>
+            <div style="font-size:.75rem;color:#8b92a9" id="verdict-score-label">Avg Score</div>
+          </div>
+        </div>
+        <div class="d-flex gap-4 flex-wrap mb-3">
+          <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:10px 18px;text-align:center">
+            <div style="font-size:1.2rem;font-weight:700;color:#4f8ef7" id="verdict-wins">—</div>
+            <div style="font-size:.72rem;color:#8b92a9">Batch Wins</div>
+          </div>
+          <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:10px 18px;text-align:center">
+            <div style="font-size:1.2rem;font-weight:700;color:#4f8ef7" id="verdict-batches">—</div>
+            <div style="font-size:.72rem;color:#8b92a9">Total Batches</div>
+          </div>
+          <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:10px 18px;text-align:center">
+            <div style="font-size:1.2rem;font-weight:700" id="verdict-consistency">—</div>
+            <div style="font-size:.72rem;color:#8b92a9">Consistency</div>
+          </div>
+        </div>
+        <div style="font-size:.88rem;color:#94a3b8;line-height:1.7;border-top:1px solid rgba(255,255,255,.08);padding-top:14px" id="verdict-recommendation">—</div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- Action bar -->
 <div class="action-bar">
   <button class="btn btn-accent-green btn-sm" onclick="retrainModel()">🔁 Retrain Model</button>
-  <button class="btn btn-accent-blue btn-sm" onclick="window.open('/api/generate-report','_blank')">📄 Generate Report</button>
-  <button class="btn btn-accent-yellow btn-sm" onclick="simulateNextBatch()">▶ Simulate Next Batch</button>
+  <button class="btn btn-accent-blue btn-sm" onclick="window.open('/api/generate-report?dataset_id='+DATASET_ID,'_blank')">📄 Generate Report</button>
+  <button class="btn btn-accent-yellow btn-sm" id="simulate-btn" onclick="simulateNextBatch()">▶ Simulate Next Batch</button>
   <a href="/upload" class="btn btn-outline-secondary btn-sm ms-auto">📤 Upload New Dataset</a>
 </div>
 
@@ -102,6 +188,10 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="/static/js/dashboard.js"></script>
 <script>
+const DATASET_ID = "{{ dataset_id }}";
+const DID_PARAM  = DATASET_ID ? '?dataset_id=' + DATASET_ID : '';
+
+// ── Drift Summary ─────────────────────────────────────────────────────────────
 function renderDriftSummary(driftData) {
   const rows = document.getElementById('drift-summary-rows');
   const psi  = driftData.overall_psi || 0;
@@ -109,7 +199,6 @@ function renderDriftSummary(driftData) {
   const klAvg= kl.length ? kl.reduce((a,b)=>a+b,0)/kl.length : 0;
   const sevClass = s => s==='No Drift'?'badge-no-drift':s==='Moderate'?'badge-moderate':'badge-severe';
   const klSev = klAvg>0.2?'Severe':klAvg>0.1?'Moderate':'No Drift';
-
   const detectors = [
     { name:'PSI Detector',  score:psi.toFixed(4),   sev: driftData.psi_severity||'No Drift' },
     { name:'KL Divergence', score:klAvg.toFixed(4), sev: klSev },
@@ -121,7 +210,6 @@ function renderDriftSummary(driftData) {
       <span style="color:var(--text-muted);font-size:.8rem">${d.score}</span>
       <span class="badge ${sevClass(d.sev)}">${d.sev}</span>
     </div>`).join('');
-
   const overall = driftData.psi_severity||'No Drift';
   const cb = document.getElementById('consensus-badge');
   const styles = {
@@ -133,6 +221,7 @@ function renderDriftSummary(driftData) {
   cb.textContent = 'CONSENSUS: '+overall.toUpperCase();
 }
 
+// ── Alerts mini table ─────────────────────────────────────────────────────────
 function renderAlertsTable(alerts) {
   const tbody = document.getElementById('alerts-mini-body');
   if (!tbody) return;
@@ -151,6 +240,181 @@ function renderAlertsTable(alerts) {
       <td style="font-size:.78rem;color:var(--text-muted)">${a.action||''}</td>
     </tr>`).join('');
 }
+
+// ── Dynamic Model Selection ───────────────────────────────────────────────────
+async function fetchBatchModelHistory() {
+  try {
+    const res = await fetch('/api/batch-model-history' + DID_PARAM);
+    if (!res.ok) return;
+    const data = await res.json();
+    renderBatchModelTable(data);
+    renderVerdict(data.verdict);
+  } catch(e) {}
+}
+
+function renderVerdict(v) {
+  const row = document.getElementById('verdict-row');
+  if (!v || !v.model) { if (row) row.style.display = 'none'; return; }
+
+  row.style.display = 'block';
+  document.getElementById('verdict-model').textContent        = v.model;
+  document.getElementById('verdict-type').textContent         = v.model_type + ' Model';
+  document.getElementById('verdict-score').textContent        = (v.avg_score * 100).toFixed(1) + '%';
+  document.getElementById('verdict-score-label').textContent  = 'Avg ' + v.score_col;
+  document.getElementById('verdict-wins').textContent         = v.wins + ' / ' + v.n_batches;
+  document.getElementById('verdict-batches').textContent      = v.n_batches;
+  document.getElementById('verdict-recommendation').textContent = v.recommendation;
+
+  const consEl = document.getElementById('verdict-consistency');
+  consEl.textContent = v.consistency;
+  consEl.style.color = v.consistency === 'Highly consistent' ? '#2ecc71'
+                     : v.consistency === 'Moderately consistent' ? '#f39c12' : '#e74c3c';
+}
+
+function renderBatchModelTable(data) {
+  const batches    = data.batch_history || [];
+  const winCounts  = data.win_counts    || {};
+  const avgScores  = data.avg_scores    || {};
+  const scoreCol   = data.score_col     || 'F1';
+  const overallBest= data.overall_best  || '—';
+
+  const badge = document.getElementById('overall-best-badge');
+  if (badge) badge.textContent = 'Overall Best: ' + overallBest;
+  const hdr = document.getElementById('score-col-header');
+  if (hdr) hdr.textContent = scoreCol;
+
+  const cards = document.getElementById('model-win-cards');
+  if (cards && Object.keys(winCounts).length) {
+    const sorted = Object.entries(winCounts).sort((a,b)=>b[1]-a[1]);
+    cards.innerHTML = sorted.map(([name, wins]) => `
+      <div style="background:#12152a;border:1px solid var(--border);border-radius:8px;padding:8px 14px;font-size:.8rem">
+        <div style="font-weight:700;color:${name===overallBest?'#2ecc71':'var(--text-primary)'}">${name}</div>
+        <div style="color:var(--text-muted)">${wins} batch win${wins>1?'s':''}</div>
+        <div style="color:var(--accent-blue)">avg ${scoreCol}: ${avgScores[name]??'—'}</div>
+      </div>`).join('');
+  }
+
+  const tbody = document.getElementById('batch-model-tbody');
+  if (!tbody) return;
+  if (!batches.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="color:var(--text-muted);padding:20px">Click "Simulate Next Batch" to see dynamic model selection in action.</td></tr>';
+    return;
+  }
+
+  // Update simulate button
+  const simBtn = document.getElementById('simulate-btn');
+  if (simBtn) {
+    if (batches.length >= 10) {
+      simBtn.disabled = true;
+      simBtn.textContent = '✓ 10/10 Batches Complete';
+      simBtn.style.background = '#2ecc71';
+    } else {
+      simBtn.disabled = false;
+      simBtn.textContent = `▶ Simulate Next Batch (${batches.length}/10)`;
+    }
+  }
+  tbody.innerHTML = batches.map(b => {
+    const scores = b.model_scores || {};
+    const topScores = Object.entries(scores)
+      .filter(([,v]) => v !== null).sort((a,b)=>b[1]-a[1]).slice(0,3)
+      .map(([name,val])=>`<span style="font-size:.72rem;margin-right:6px;color:${name===b.best_model?'#2ecc71':'var(--text-muted)'}">${name}: ${val}</span>`)
+      .join('');
+    return `<tr>
+      <td style="font-weight:700">#${b.batch_id}</td>
+      <td style="color:#2ecc71;font-weight:600">${b.best_model||'—'}</td>
+      <td style="color:var(--accent-blue)">${b.best_score??'—'}</td>
+      <td style="color:${b.overall_psi>0.2?'#e74c3c':b.overall_psi>0.1?'#f39c12':'#2ecc71'}">${b.overall_psi?.toFixed(4)??'—'}</td>
+      <td>${b.alert?'<span class="badge badge-level-critical">YES</span>':'<span class="badge badge-level-info">NO</span>'}</td>
+      <td style="font-size:.75rem">${topScores}</td>
+    </tr>`;
+  }).join('');
+
+  if (Object.keys(winCounts).length) {
+    const names = Object.keys(winCounts), wins = Object.values(winCounts);
+    Plotly.react('win-count-chart',[{
+      type:'bar', x:names, y:wins,
+      marker:{color:names.map(n=>n===overallBest?'#2ecc71':'#4f8ef7')},
+      text:wins.map(v=>`${v} win${v>1?'s':''}`), textposition:'outside',
+      textfont:{color:'#8b92a9',size:10},
+    }],{
+      ...PLOTLY_LAYOUT_BASE,
+      title:{text:'Model Wins Across Batches',font:{size:13,color:'#e8eaf0'}},
+      xaxis:{...PLOTLY_LAYOUT_BASE.xaxis,tickangle:-30},
+      yaxis:{...PLOTLY_LAYOUT_BASE.yaxis,title:'Batch Wins',dtick:1},
+      height:220,
+    },{responsive:true,displayModeBar:false});
+  }
+}
+
+// ── Main refresh — called on load and every 30s ───────────────────────────────
+async function refreshAll() {
+  try {
+    const [perfRes, driftRes, alertRes] = await Promise.all([
+      fetch('/api/performance-metrics' + DID_PARAM),
+      fetch('/api/drift-status'        + DID_PARAM),
+      fetch('/api/alerts'              + DID_PARAM),
+    ]);
+    const perf  = perfRes.ok  ? await perfRes.json()  : null;
+    const drift = driftRes.ok ? await driftRes.json() : null;
+    const alert = alertRes.ok ? await alertRes.json() : null;
+
+    if (perf)  renderPerformanceChart(perf);
+    if (drift) { renderDriftChart(drift); renderDriftSummary(drift); }
+    updateKPICards(perf, drift, alert);
+    if (alert) renderAlertsTable(alert.alerts || []);
+    hydrateNavbar();
+  } catch(e) { console.warn('refreshAll error', e); }
+  fetchBatchModelHistory();
+}
+
+// ── Override simulate and retrain to also refresh batch table ─────────────────
+async function simulateNextBatch() {
+  showLoading('Simulating next batch…');
+  try {
+    const res  = await fetch('/api/simulate-batch', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({dataset_id: DATASET_ID}),
+    });
+    const data = await res.json();
+    hideLoading();
+
+    // Limit reached
+    if (data.error === 'limit_reached') {
+      const btn = document.querySelector('button[onclick="simulateNextBatch()"]');
+      if (btn) { btn.disabled = true; btn.textContent = '✓ 10 Batches Complete'; btn.style.background='#2ecc71'; }
+      showToast('All 10 batches simulated. See Final Verdict below.', 'success');
+      refreshAll();
+      return;
+    }
+
+    if (!res.ok) { showToast(data.error||'Simulation failed','error'); return; }
+    const winner = data.best_model ? ` | Best: ${data.best_model} (${data.best_score})` : '';
+    showToast(`Batch ${data.batch_id} — PSI: ${data.overall_psi.toFixed(4)}${winner}`,
+              data.alert?'warning':'success');
+    refreshAll();
+  } catch(e) { hideLoading(); showToast('Simulation error','error'); }
+}
+
+async function retrainModel() {
+  showLoading('Retraining model…');
+  try {
+    const res  = await fetch('/api/retrain', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({dataset_id: DATASET_ID}),
+    });
+    const data = await res.json();
+    hideLoading();
+    if (!res.ok) { showToast(data.error||'Retrain failed','error'); return; }
+    showToast(`Retrained! Best: ${data.best_model} (${(data.score*100).toFixed(1)}%)`,'success');
+    refreshAll();
+  } catch(e) { hideLoading(); showToast('Retrain error','error'); }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  refreshAll();
+  setInterval(refreshAll, 30000);
+});
 </script>
 </body>
 </html>

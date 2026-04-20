@@ -119,8 +119,10 @@ function sevColor(s) {
   return s==='No Drift'?'var(--accent-green)':s==='Moderate'?'var(--accent-yellow)':'var(--accent-red)';
 }
 
+const DATASET_ID = "{{ dataset_id }}";
+
 async function loadDrift() {
-  const res = await fetch('/api/drift-status');
+  const res = await fetch('/api/drift-status?dataset_id=' + DATASET_ID);
   if (!res.ok) { return; }
   const data = await res.json();
 
